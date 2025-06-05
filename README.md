@@ -3,6 +3,7 @@
 git clone --recurse-submodules https://github.com/LumiOpen/poro2-scripts-dev.git
 cd poro2-scripts-dev
 git apply patches/poro2-scripts.patch
+cp tools/saver_llama_mistral.py Megatron-LM/tools/checkpoint/
 ```
 # Tokenize data with HF tokenizer
 Input to the tokenization is jsonl files with field "text" containing the text to be tokenized
