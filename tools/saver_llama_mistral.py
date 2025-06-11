@@ -1,6 +1,7 @@
 # Adapted from https://gist.github.com/devymex/734ff89ffb7ba047de177201ba90b3d1
 
 import os, sys, torch, torch.multiprocessing as mp
+import transformers
 from transformers import AutoModelForCausalLM, LlamaConfig, AutoTokenizer
 from pathlib import Path
 
@@ -36,6 +37,7 @@ def save_checkpoint(queue: mp.Queue, args):
     assert hasattr(md, 'checkpoint_args')
     assert md.model_type == 'GPT'
     mag_conf = md.checkpoint_args
+
     torch_dtype = torch.float32
     if mag_conf.bf16:
         assert mag_conf.fp16 == False
@@ -45,12 +47,24 @@ def save_checkpoint(queue: mp.Queue, args):
         torch_dtype = torch.float16
     assert mag_conf.swiglu == True
     assert mag_conf.rotary_percent == 1.0
+    if mag_conf.use_rope_scaling == True:
+        # These are the default values for Llama3 and used in 
+        # Megatron-LM/megatron/core/models/common/embeddings/rotary_pos_embedding.py
+        rope_scaling_conf = {
+            "factor": 8.0,
+            "low_freq_factor": 1.0,
+            "high_freq_factor": 4.0,
+            "original_max_position_embeddings": 8192,
+            "rope_type": "llama3"
+            }
     if args.tokenizer_dir is not None:
         assert os.path.exists(args.tokenizer_dir)
         tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_dir)
         tokenizer.save_pretrained(args.save_dir)
 
     hf_config = LlamaConfig(
+        bos_token_id            = tokenizer.bos_token_id if args.tokenizer_dir is not None else 1,
+        eos_token_id            = tokenizer.eos_token_id if args.tokenizer_dir is not None else 2,
         vocab_size              = mag_conf.padded_vocab_size,
         hidden_size             = mag_conf.hidden_size,
         intermediate_size       = mag_conf.ffn_hidden_size,
@@ -62,11 +76,13 @@ def save_checkpoint(queue: mp.Queue, args):
         tie_word_embeddings     = not mag_conf.untie_embeddings_and_output_weights,
         attention_bias          = mag_conf.add_bias_linear,
         torch_dtype             = torch_dtype,
-        rope_theta              = mag_conf.rope_theta if hasattr(mag_conf, 'rope_theta') else 10000,
+        rope_scaling            = rope_scaling_conf if mag_conf.use_rope_scaling else None, 
+        rope_theta              = mag_conf.rotary_base if hasattr(mag_conf, 'rotary_base') else 10000,
         model_type              = "llama",
         architectures           = ['LlamaForCausalLM'],
-        transformers_version    = "4.33.1",
+        transformers_version    = transformers.__version__,
         )
+
     hf_config.save_pretrained(args.save_dir)
 
     state_dict = {}
